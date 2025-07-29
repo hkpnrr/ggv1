@@ -68,16 +68,18 @@ const EventCard = ({ event, onClick, onJoinEvent, isJoining, hasJoined }) => {
           </h3>
           
           {/* Event Tags */}
-          <div className="flex flex-wrap gap-2 mb-3">
-            {event.tags?.map((tag, index) => (
-              <span
-                key={index}
-                className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-cream-100 dark:bg-gray-700 text-cream-300 dark:text-cream-300 border border-cream-200 dark:border-gray-600"
-              >
-                #{tag}
-              </span>
-            ))}
-          </div>
+          {event.tags && event.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {event.tags.map((tag, index) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-cream-100 dark:bg-gray-700 text-cream-300 dark:text-cream-300 border border-cream-200 dark:border-gray-600"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Attendee Progress Bar */}

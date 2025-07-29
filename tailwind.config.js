@@ -15,6 +15,7 @@ export default {
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',
         'scale-in': 'scaleIn 0.3s ease-out',
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
       keyframes: {
         fadeIn: {
