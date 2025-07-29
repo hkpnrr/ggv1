@@ -11,7 +11,9 @@ const mockEvents = [
     location: 'Beyoğlu, Istanbul',
     creator: 'Ahmet Yılmaz',
     attendees: 12,
-    maxAttendees: 30
+    maxAttendees: 30,
+    image: 'https://images.pexels.com/photos/1181676/pexels-photo-1181676.jpeg?auto=compress&cs=tinysrgb&w=800&h=400&fit=crop',
+    tags: ['Tech', 'Networking', 'Business']
   },
   {
     id: 2,
@@ -22,7 +24,9 @@ const mockEvents = [
     location: 'Kadıköy, Istanbul',
     creator: 'Zeynep Kaya',
     attendees: 8,
-    maxAttendees: 15
+    maxAttendees: 15,
+    image: 'https://images.pexels.com/photos/2774556/pexels-photo-2774556.jpeg?auto=compress&cs=tinysrgb&w=800&h=400&fit=crop',
+    tags: ['Tech', 'Casual']
   },
   {
     id: 3,
@@ -33,7 +37,9 @@ const mockEvents = [
     location: 'Şişli, Istanbul',
     creator: 'Mehmet Demir',
     attendees: 25,
-    maxAttendees: 50
+    maxAttendees: 50,
+    image: 'https://images.pexels.com/photos/3184465/pexels-photo-3184465.jpeg?auto=compress&cs=tinysrgb&w=800&h=400&fit=crop',
+    tags: ['Business', 'Networking']
   },
   {
     id: 4,
@@ -44,7 +50,9 @@ const mockEvents = [
     location: 'Sultanahmet, Istanbul',
     creator: 'Elif Özkan',
     attendees: 6,
-    maxAttendees: 20
+    maxAttendees: 20,
+    image: 'https://images.pexels.com/photos/1983032/pexels-photo-1983032.jpeg?auto=compress&cs=tinysrgb&w=800&h=400&fit=crop',
+    tags: ['Photography', 'Art', 'Casual']
   }
 ];
 

@@ -134,6 +134,9 @@ const Home = () => {
                 key={event.id}
                 event={event}
                 onClick={handleEventClick}
+                onJoinEvent={handleJoinEvent}
+                isJoining={isJoining}
+                hasJoined={joinedEvents.has(event.id)}
               />
             ))}
           </div>

@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { eventsAPI } from '../services/api';
-import { Calendar, MapPin, Users, FileText, Plus } from 'lucide-react';
+import { Calendar, MapPin, Users, FileText, Plus, Image, Tag } from 'lucide-react';
 
 const createEventSchema = z.object({
   name: z.string().min(3, 'Event name must be at least 3 characters'),
@@ -12,25 +12,53 @@ const createEventSchema = z.object({
   date: z.string().min(1, 'Event date is required'),
   time: z.string().min(1, 'Event time is required'),
   location: z.string().min(3, 'Location must be at least 3 characters'),
-  maxAttendees: z.number().min(1, 'Maximum attendees must be at least 1').max(1000, 'Maximum attendees cannot exceed 1000')
+  maxAttendees: z.number().min(1, 'Maximum attendees must be at least 1').max(1000, 'Maximum attendees cannot exceed 1000'),
+  image: z.string().optional(),
+  tags: z.array(z.string()).optional()
 });
 
 const CreateEvent = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [customTag, setCustomTag] = useState('');
+
+  const availableTags = [
+    'Tech', 'Networking', 'Photography', 'Casual', 'Business', 'Art', 
+    'Music', 'Food', 'Sports', 'Education', 'Health', 'Travel'
+  ];
 
   const {
     register,
     handleSubmit,
     formState: { errors },
-    setError
+    setError,
+    setValue
   } = useForm({
     resolver: zodResolver(createEventSchema),
     defaultValues: {
-      maxAttendees: 20
+      maxAttendees: 20,
+      tags: []
     }
   });
 
+  const handleTagToggle = (tag) => {
+    const newTags = selectedTags.includes(tag)
+      ? selectedTags.filter(t => t !== tag)
+      : [...selectedTags, tag].slice(0, 3); // Limit to 3 tags
+    
+    setSelectedTags(newTags);
+    setValue('tags', newTags);
+  };
+
+  const handleAddCustomTag = () => {
+    if (customTag.trim() && !selectedTags.includes(customTag.trim()) && selectedTags.length < 3) {
+      const newTags = [...selectedTags, customTag.trim()];
+      setSelectedTags(newTags);
+      setValue('tags', newTags);
+      setCustomTag('');
+    }
+  };
   const onSubmit = async (data) => {
     console.log('Create event form data:', data);
     setIsLoading(true);
@@ -38,7 +66,8 @@ const CreateEvent = () => {
     try {
       const eventData = {
         ...data,
-        maxAttendees: parseInt(data.maxAttendees)
+        maxAttendees: parseInt(data.maxAttendees),
+        tags: selectedTags
       };
       
       const newEvent = await eventsAPI.createEvent(eventData);
@@ -89,6 +118,23 @@ const CreateEvent = () => {
               )}
             </div>
 
+            {/* Event Image */}
+            <div>
+              <label htmlFor="image" className="flex items-center text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                <Image className="h-5 w-5 mr-2 text-cream-300" />
+                Event Image URL (Optional)
+              </label>
+              <input
+                {...register('image')}
+                type="url"
+                className="w-full px-4 py-4 border border-cream-200 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-cream-300 focus:border-cream-300 transition-all duration-200 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 shadow-inner"
+                placeholder="https://example.com/image.jpg"
+              />
+              <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                Add a cover image URL for your event (recommended: 800x400px)
+              </p>
+            </div>
+
             {/* Description */}
             <div>
               <label htmlFor="description" className="flex items-center text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
@@ -105,6 +151,78 @@ const CreateEvent = () => {
               />
               {errors.description && (
                 <p className="mt-2 text-sm text-red-600 dark:text-red-400">{errors.description.message}</p>
+              )}
+            </div>
+
+            {/* Event Tags */}
+            <div>
+              <label className="flex items-center text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                <Tag className="h-5 w-5 mr-2 text-cream-300" />
+                Event Tags (Select up to 3)
+              </label>
+              
+              {/* Available Tags */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {availableTags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => handleTagToggle(tag)}
+                    className={`px-3 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+                      selectedTags.includes(tag)
+                        ? 'bg-cream-300 text-white shadow-md'
+                        : 'bg-cream-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-cream-200 dark:hover:bg-gray-600'
+                    }`}
+                    disabled={!selectedTags.includes(tag) && selectedTags.length >= 3}
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom Tag Input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customTag}
+                  onChange={(e) => setCustomTag(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCustomTag())}
+                  placeholder="Add custom tag..."
+                  className="flex-1 px-3 py-2 border border-cream-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-cream-300 focus:border-cream-300 transition-all duration-200 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 text-sm"
+                  disabled={selectedTags.length >= 3}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomTag}
+                  disabled={!customTag.trim() || selectedTags.length >= 3}
+                  className="px-4 py-2 bg-cream-300 text-white rounded-lg hover:bg-cream-300/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm font-medium"
+                >
+                  Add
+                </button>
+              </div>
+
+              {/* Selected Tags Display */}
+              {selectedTags.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Selected tags:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTags.map((tag, index) => (
+                      <span
+                        key={index}
+                        className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-cream-200 dark:bg-gray-700 text-cream-300 dark:text-cream-300"
+                      >
+                        #{tag}
+                        <button
+                          type="button"
+                          onClick={() => handleTagToggle(tag)}
+                          className="ml-2 text-cream-300 hover:text-cream-300/80"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 
