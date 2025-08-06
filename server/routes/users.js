@@ -1,282 +1,231 @@
 import express from 'express';
-import bcrypt from 'bcryptjs';
-import { db } from '../database/init.js';
+import User from '../models/User.js';
+import Event from '../models/Event.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Get user profile
-router.get('/profile', authenticateToken, (req, res) => {
-  const userId = req.user.id;
+router.get('/profile', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user._id;
 
-  // Get user stats
-  const statsQuery = `
-    SELECT 
-      (SELECT COUNT(*) FROM events WHERE creator_id = ?) as events_created,
-      (SELECT COUNT(*) FROM event_attendees WHERE user_id = ?) as events_joined,
-      (SELECT COUNT(DISTINCT ea2.user_id) 
-       FROM events e 
-       JOIN event_attendees ea1 ON e.id = ea1.event_id 
-       JOIN event_attendees ea2 ON e.id = ea2.event_id 
-       WHERE ea1.user_id = ? AND ea2.user_id != ?) as connections
-  `;
+    // Get user stats
+    const [eventsCreated, eventsJoined, totalEvents] = await Promise.all([
+      Event.countDocuments({ creator: userId }),
+      Event.countDocuments({ 'attendees.user': userId }),
+      Event.find({ 'attendees.user': userId }).populate('attendees.user', '_id')
+    ]);
 
-  db.get(statsQuery, [userId, userId, userId, userId], (err, stats) => {
-    if (err) {
-      return res.status(500).json({ error: 'Failed to fetch user stats' });
-    }
-
-    // Get recent activity
-    const activityQuery = `
-      SELECT 
-        'created' as type,
-        e.name as event_name,
-        e.id as event_id,
-        e.created_at as timestamp
-      FROM events e
-      WHERE e.creator_id = ?
-      
-      UNION ALL
-      
-      SELECT 
-        'joined' as type,
-        e.name as event_name,
-        e.id as event_id,
-        ea.joined_at as timestamp
-      FROM event_attendees ea
-      JOIN events e ON ea.event_id = e.id
-      WHERE ea.user_id = ? AND e.creator_id != ?
-      
-      ORDER BY timestamp DESC
-      LIMIT 10
-    `;
-
-    db.all(activityQuery, [userId, userId, userId], (err, activities) => {
-      if (err) {
-        return res.status(500).json({ error: 'Failed to fetch user activity' });
-      }
-
-      res.json({
-        user: req.user,
-        stats: {
-          eventsCreated: stats.events_created || 0,
-          eventsJoined: stats.events_joined || 0,
-          connections: stats.connections || 0
-        },
-        recentActivity: activities || []
+    // Calculate connections (unique users from events the user has joined)
+    const connections = new Set();
+    totalEvents.forEach(event => {
+      event.attendees.forEach(attendee => {
+        if (attendee.user._id.toString() !== userId.toString()) {
+          connections.add(attendee.user._id.toString());
+        }
       });
     });
-  });
+
+    // Get recent activity
+    const recentCreated = await Event.find({ creator: userId })
+      .select('name _id createdAt')
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    const recentJoined = await Event.find({ 
+      'attendees.user': userId,
+      creator: { $ne: userId }
+    })
+      .select('name _id attendees')
+      .sort({ 'attendees.joinedAt': -1 })
+      .limit(5);
+
+    const activities = [
+      ...recentCreated.map(event => ({
+        type: 'created',
+        event_name: event.name,
+        event_id: event._id,
+        timestamp: event.createdAt
+      })),
+      ...recentJoined.map(event => {
+        const userAttendee = event.attendees.find(
+          a => a.user.toString() === userId.toString()
+        );
+        return {
+          type: 'joined',
+          event_name: event.name,
+          event_id: event._id,
+          timestamp: userAttendee ? userAttendee.joinedAt : new Date()
+        };
+      })
+    ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 10);
+
+    res.json({
+      user: req.user,
+      stats: {
+        eventsCreated,
+        eventsJoined,
+        connections: connections.size
+      },
+      recentActivity: activities
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch user profile' });
+  }
 });
 
 // Update user profile
-router.put('/profile', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const { name, bio, location } = req.body;
+router.put('/profile', authenticateToken, async (req, res) => {
+  try {
+    const { name, bio, location } = req.body;
+    const userId = req.user._id;
 
-  const updates = [];
-  const params = [];
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (bio !== undefined) updateData.bio = bio;
+    if (location !== undefined) updateData.location = location;
 
-  if (name) {
-    updates.push('name = ?');
-    params.push(name);
-  }
-  if (bio !== undefined) {
-    updates.push('bio = ?');
-    params.push(bio);
-  }
-  if (location !== undefined) {
-    updates.push('location = ?');
-    params.push(location);
-  }
-
-  if (updates.length === 0) {
-    return res.status(400).json({
-      error: 'No updates provided',
-      message: 'Please provide at least one field to update'
-    });
-  }
-
-  updates.push('updated_at = CURRENT_TIMESTAMP');
-  params.push(userId);
-
-  const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-
-  db.run(query, params, function(err) {
-    if (err) {
-      return res.status(500).json({ error: 'Failed to update profile' });
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        error: 'No updates provided',
+        message: 'Please provide at least one field to update'
+      });
     }
 
-    // Get updated user data
-    db.get(
-      'SELECT id, name, email, avatar, bio, location FROM users WHERE id = ?',
-      [userId],
-      (err, user) => {
-        if (err) {
-          return res.status(500).json({ error: 'Failed to fetch updated profile' });
-        }
-
-        res.json({
-          message: 'Profile updated successfully',
-          user
-        });
-      }
+    const user = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, runValidators: true }
     );
-  });
+
+    res.json({
+      message: 'Profile updated successfully',
+      user: user.toJSON()
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
 });
 
 // Change password
 router.put('/password', authenticateToken, async (req, res) => {
-  const userId = req.user.id;
-  const { currentPassword, newPassword } = req.body;
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.user._id;
 
-  if (!currentPassword || !newPassword) {
-    return res.status(400).json({
-      error: 'Missing required fields',
-      message: 'Current password and new password are required'
-    });
-  }
-
-  if (newPassword.length < 6) {
-    return res.status(400).json({
-      error: 'Invalid password',
-      message: 'New password must be at least 6 characters long'
-    });
-  }
-
-  // Get current password hash
-  db.get('SELECT password FROM users WHERE id = ?', [userId], async (err, user) => {
-    if (err) {
-      return res.status(500).json({ error: 'Database error' });
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        message: 'Current password and new password are required'
+      });
     }
 
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        error: 'Invalid password',
+        message: 'New password must be at least 6 characters long'
+      });
+    }
+
+    // Get user with password
+    const user = await User.findById(userId).select('+password');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    try {
-      // Verify current password
-      const isValidPassword = await bcrypt.compare(currentPassword, user.password);
-      
-      if (!isValidPassword) {
-        return res.status(401).json({
-          error: 'Invalid current password',
-          message: 'The current password you entered is incorrect'
-        });
-      }
-
-      // Hash new password
-      const saltRounds = 12;
-      const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
-
-      // Update password
-      db.run(
-        'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [hashedNewPassword, userId],
-        function(err) {
-          if (err) {
-            return res.status(500).json({ error: 'Failed to update password' });
-          }
-
-          res.json({ message: 'Password updated successfully' });
-        }
-      );
-    } catch (error) {
-      res.status(500).json({ error: 'Server error during password update' });
+    // Verify current password
+    const isValidPassword = await user.comparePassword(currentPassword);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        error: 'Invalid current password',
+        message: 'The current password you entered is incorrect'
+      });
     }
-  });
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Server error during password update' });
+  }
 });
 
 // Get user's created events
-router.get('/events/created', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const { limit = 10, offset = 0 } = req.query;
+router.get('/events/created', authenticateToken, async (req, res) => {
+  try {
+    const { limit = 10, offset = 0 } = req.query;
+    const userId = req.user._id;
 
-  const query = `
-    SELECT 
-      e.*,
-      COUNT(ea.user_id) as attendee_count,
-      GROUP_CONCAT(et.tag) as tags
-    FROM events e
-    LEFT JOIN event_attendees ea ON e.id = ea.event_id
-    LEFT JOIN event_tags et ON e.id = et.event_id
-    WHERE e.creator_id = ?
-    GROUP BY e.id
-    ORDER BY e.created_at DESC
-    LIMIT ? OFFSET ?
-  `;
-
-  db.all(query, [userId, parseInt(limit), parseInt(offset)], (err, events) => {
-    if (err) {
-      return res.status(500).json({ error: 'Failed to fetch created events' });
-    }
+    const events = await Event.find({ creator: userId })
+      .populate('attendees.user', 'name avatar')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(offset));
 
     const formattedEvents = events.map(event => ({
-      id: event.id,
+      id: event._id,
       name: event.name,
       description: event.description,
       date: event.date,
       time: event.time,
       location: event.location,
       image: event.image,
-      maxAttendees: event.max_attendees,
-      attendees: event.attendee_count || 0,
-      tags: event.tags ? event.tags.split(',') : [],
-      createdAt: event.created_at,
-      updatedAt: event.updated_at
+      maxAttendees: event.maxAttendees,
+      attendees: event.attendeeCount,
+      tags: event.tags,
+      createdAt: event.createdAt,
+      updatedAt: event.updatedAt
     }));
 
     res.json({ events: formattedEvents });
-  });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch created events' });
+  }
 });
 
 // Get user's joined events
-router.get('/events/joined', authenticateToken, (req, res) => {
-  const userId = req.user.id;
-  const { limit = 10, offset = 0 } = req.query;
+router.get('/events/joined', authenticateToken, async (req, res) => {
+  try {
+    const { limit = 10, offset = 0 } = req.query;
+    const userId = req.user._id;
 
-  const query = `
-    SELECT 
-      e.*,
-      u.name as creator_name,
-      COUNT(ea2.user_id) as attendee_count,
-      GROUP_CONCAT(et.tag) as tags,
-      ea.joined_at
-    FROM event_attendees ea
-    JOIN events e ON ea.event_id = e.id
-    JOIN users u ON e.creator_id = u.id
-    LEFT JOIN event_attendees ea2 ON e.id = ea2.event_id
-    LEFT JOIN event_tags et ON e.id = et.event_id
-    WHERE ea.user_id = ?
-    GROUP BY e.id, u.name, ea.joined_at
-    ORDER BY ea.joined_at DESC
-    LIMIT ? OFFSET ?
-  `;
+    const events = await Event.find({ 'attendees.user': userId })
+      .populate('creator', 'name')
+      .populate('attendees.user', 'name avatar')
+      .sort({ 'attendees.joinedAt': -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(offset));
 
-  db.all(query, [userId, parseInt(limit), parseInt(offset)], (err, events) => {
-    if (err) {
-      return res.status(500).json({ error: 'Failed to fetch joined events' });
-    }
-
-    const formattedEvents = events.map(event => ({
-      id: event.id,
-      name: event.name,
-      description: event.description,
-      date: event.date,
-      time: event.time,
-      location: event.location,
-      image: event.image,
-      maxAttendees: event.max_attendees,
-      attendees: event.attendee_count || 0,
-      creator: event.creator_name,
-      tags: event.tags ? event.tags.split(',') : [],
-      joinedAt: event.joined_at,
-      createdAt: event.created_at,
-      updatedAt: event.updated_at
-    }));
+    const formattedEvents = events.map(event => {
+      const userAttendee = event.attendees.find(
+        a => a.user._id.toString() === userId.toString()
+      );
+      
+      return {
+        id: event._id,
+        name: event.name,
+        description: event.description,
+        date: event.date,
+        time: event.time,
+        location: event.location,
+        image: event.image,
+        maxAttendees: event.maxAttendees,
+        attendees: event.attendeeCount,
+        creator: event.creator.name,
+        tags: event.tags,
+        joinedAt: userAttendee ? userAttendee.joinedAt : null,
+        createdAt: event.createdAt,
+        updatedAt: event.updatedAt
+      };
+    });
 
     res.json({ events: formattedEvents });
-  });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch joined events' });
+  }
 });
 
 export default router;

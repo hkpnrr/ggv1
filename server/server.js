@@ -7,6 +7,8 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import connectDB from './database/connection.js';
+import { seedDatabase } from './database/seedData.js';
 
 // Import routes
 import authRoutes from './routes/auth.js';
@@ -18,9 +20,6 @@ import uploadRoutes from './routes/upload.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 
-// Import database
-import { initializeDatabase } from './database/init.js';
-
 // Load environment variables
 dotenv.config();
 
@@ -30,8 +29,11 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize database
-await initializeDatabase();
+// Connect to MongoDB
+await connectDB();
+
+// Seed database with sample data
+await seedDatabase();
 
 // Security middleware
 app.use(helmet({

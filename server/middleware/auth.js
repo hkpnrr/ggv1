@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { db } from '../database/init.js';
+import User from '../models/User.js';
 
 export const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -21,17 +21,9 @@ export const authenticateToken = (req, res, next) => {
     }
 
     // Get user from database
-    db.get(
-      'SELECT id, name, email, avatar, bio, location FROM users WHERE id = ?',
-      [decoded.userId],
-      (err, user) => {
-        if (err) {
-          return res.status(500).json({ 
-            error: 'Database error',
-            message: 'Error retrieving user information'
-          });
-        }
-
+    User.findById(decoded.userId)
+      .select('name email avatar bio location')
+      .then(user => {
         if (!user) {
           return res.status(404).json({ 
             error: 'User not found',
@@ -41,8 +33,13 @@ export const authenticateToken = (req, res, next) => {
 
         req.user = user;
         next();
-      }
-    );
+      })
+      .catch(err => {
+        return res.status(500).json({ 
+          error: 'Database error',
+          message: 'Error retrieving user information'
+        });
+      });
   });
 };
 
@@ -62,17 +59,15 @@ export const optionalAuth = (req, res, next) => {
     }
 
     // Get user from database
-    db.get(
-      'SELECT id, name, email, avatar, bio, location FROM users WHERE id = ?',
-      [decoded.userId],
-      (err, user) => {
-        if (err || !user) {
-          req.user = null;
-        } else {
-          req.user = user;
-        }
+    User.findById(decoded.userId)
+      .select('name email avatar bio location')
+      .then(user => {
+        req.user = user;
         next();
-      }
-    );
+      })
+      .catch(err => {
+        req.user = null;
+        next();
+      });
   });
 };
